@@ -1,0 +1,58 @@
+{
+  "name": "dsh-model-modality",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Per-model input type (text/image) and thinking level checkboxes on the dsh Models settings page, writing the official llm-pi-ai `input` and `reasoningEfforts` fields.",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "llm",
+    "pi-ai",
+    "reasoning-effort",
+    "thinking-level",
+    "modality"
+  ],
+  "license": "MIT",
+  "author": "hmtxj",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hmtxj/dsh-model-modality.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hmtxj/dsh-model-modality/issues"
+  },
+  "homepage": "https://github.com/hmtxj/dsh-model-modality#readme",
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node test/host.test.mjs && node test/client.test.mjs"
+  },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": { "platform": "web", "immediately": true, "inject": [] },
+    "engines": { "dsh": ">=0.1.5-rc.1" }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-host-webserver": "^0.1.5-rc.1",
+    "@deepseek-ai/dsh-llm": "^0.1.5-rc.1",
+    "@deepseek-ai/dsh-settings": "^0.1.5-rc.1"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": { "optional": true },
+    "@deepseek-ai/dsh-host-webserver": { "optional": true },
+    "@deepseek-ai/dsh-llm": { "optional": true },
+    "@deepseek-ai/dsh-settings": { "optional": true }
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  }
+}

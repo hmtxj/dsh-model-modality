@@ -1,0 +1,6 @@
+# dsh bundle layer: mount the host half so the client half is discovered.
+# The client module system scans host Loader entries for packages declaring
+# dsh.client; without this row the browser half never loads.
+- insert:
+    - id: dsh-model-modality
+      name: 'dsh-model-modality'

@@ -1,0 +1,8 @@
+node_modules/
+*.log
+
+# The pre-plugin approach: patching the vendor settings bundle by hand. Superseded
+# by the provider-card slot contribution in client.js — kept locally for reference,
+# never published.
+patch-editor-thinking.mjs
+*.pre-thinking-patch

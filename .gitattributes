@@ -1,0 +1,5 @@
+# A plugin installed straight from GitHub is served as-is — no build step — so the
+# working tree must stay byte-identical to the checkout. Pin LF.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
