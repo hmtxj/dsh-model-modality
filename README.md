@@ -1,10 +1,17 @@
 # dsh-model-modality
 
-Per-model **输入类型** (text / image) checkboxes on the DeepSeek Harness **设置 → 模型**
-page.
+Two per-model declarations DSH's shipped Models UI does not surface:
+
+1. **输入类型** (text / image) checkboxes under every provider card on
+   **设置 → 模型**.
+2. A **思考等级** field inside the provider **编辑** dialog, on each model row's
+   expanded area next to 上下文窗口 / 最大输出 token.
 
 DSH's shipped Models page tells you which models a provider serves, but not what each
-model *accepts*. This plugin adds one row per model under every provider card:
+model *accepts* or which reasoning levels it offers. This plugin adds both, writing the
+**official pi-ai fields** `input` and `reasoningEfforts`.
+
+## 输入类型 — one row per model
 
 ```
 teamo-router
@@ -17,18 +24,58 @@ teamo-router
 ```
 
 `文本` is always on and always disabled — every model in these routes takes text. `图片`
-is the one you toggle, and it writes the **official pi-ai per-model field** `input`.
-Nothing is invented and nothing is monkey-patched: the shipped UI simply never surfaces
-that field, and the `settings.models.provider-card` slot exists precisely so an
-out-of-tree plugin can add it.
+is the one you toggle.
 
-## Why this is a plugin and not a patch
+## 思考等级 — inside the 编辑 dialog
+
+Click 编辑 on a provider, expand a model row, and the levels appear:
+
+```
+deepseek-v4-flash-free        [deepseek-v4-flash-free  ▾]  🗑
+上下文窗口                    最大输出 token
+[256K                     ]  [32K                      ]
+思考等级
+☐ 关  ☐ 最小  ☐ 低  ☐ 中  ☐ 高  ☐ 超高  ☑ Max
+```
+
+The checkbox set is the declaration: ticked levels are written to `reasoningEfforts` as an
+identity map (`{ high: "high", max: "max" }`), with `关` written as `null`. **All
+unchecked removes the key entirely** — meaning "inherit whatever the installed catalog
+declares", which is the right default. An **off-only** pick is refused (the checkbox snaps
+back), because the adapter invalidates an off-only declaration at profile load and writing
+one would break the next boot.
+
+This declaration is per model and per route: changing it for one model leaves every other
+model in the same route alone.
+
+## Why 思考等级 needs a patch, and how it stays automatic
 
 DSH exposes exactly two extension points on the Models page
-(`settings.models.provider-card` and `settings.models.footer`).
+(`settings.models.provider-card` and `settings.models.footer`), and the 编辑 dialog
+exposes **none**. A plugin can therefore *contribute* the 输入类型 card through the
+official slot, but it cannot render a field inside the 编辑 dialog — the only way in is to
+patch the shipped settings bundle.
 
-This plugin contributes to the official slot, so **a dsh upgrade never breaks it and
-there is nothing to re-apply.**
+This plugin does that itself, at profile load, through the module registry's own API:
+
+- `ctx.clientModules.clientPath('@deepseek-ai/dsh-client-ui-settings-models')` locates the
+  bundle on whatever machine it runs on — no hard-coded install path;
+- the patch is anchored on two upstream strings and **aborts without writing** if either
+  moved, so a future DSH layout change degrades to "no field" rather than a broken bundle;
+- the original is kept beside it as `client.js.pre-thinking-patch`;
+- `ctx.clientModules.rebuilt()` re-hashes the bundle so the registry serves the patched
+  bytes rather than its startup snapshot.
+
+The practical effect: **install once, and it survives `npm i -g @deepseek-ai/dsh`.** An
+upgrade restores the pristine bundle, the marker disappears, and the next `dsh web` boot
+patches it again. There is no script to re-run.
+
+The same operation is available as a one-off CLI (useful for inspecting state without
+restarting dsh, or for patching an install the plugin is not loaded in):
+
+```bash
+node patch-editor-thinking.mjs [path/to/lib/client.js]
+```
 
 ## Install
 
@@ -36,7 +83,8 @@ there is nothing to re-apply.**
 dsh plugin --profile web add github:hmtxj/dsh-model-modality
 ```
 
-Then restart the profile (`dsh web`). The card appears on the next 设置 → 模型 render.
+Then restart the profile (`dsh web`). The card appears on the next 设置 → 模型 render, and
+the 思考等级 field on the next time you open a provider's 编辑 dialog.
 
 Because the package declares `dsh.bundle.patch`, `dsh plugin add` also adds it to
 `dsh.profile.bundles` automatically — no manual manifest editing.
@@ -71,12 +119,12 @@ would bounce straight back on the next read.
 
 DSH lets a route declare its models in two mutually exclusive ways, and the adapter
 rejects a profile that mixes them. The plugin detects which one your route uses and
-writes accordingly:
+writes accordingly — the same two landing spots for both `input` and `reasoningEfforts`:
 
 | Route shape | Written to | Effect |
 | --- | --- | --- |
-| has a `models:` list | that row's `input` field, whole-array rewrite | only this model changes |
-| no `models:` list (catalog route) | `modelOverrides.<model-id>.input` | only this model changes; the other catalog models keep serving |
+| has a `models:` list | that row's field (`input` / `reasoningEfforts`), whole-value rewrite | only this model changes |
+| no `models:` list (catalog route) | `modelOverrides.<model-id>.<field>` | only this model changes; the other catalog models keep serving |
 
 On a fresh machine where you only pasted an API key and never listed a single model, the
 plugin still shows every model the route serves — it asks the llm runtime
@@ -92,7 +140,8 @@ GET  /dsh-model-modality/models
      -> { revision, providers: [{ provider, mode, models: [{ id, name?, imageOn, efforts }] }] }
 
 POST /dsh-model-modality/models
-     { provider, modelId, revision, enable: true | false }            # image input
+     { provider, modelId, revision, enable: true | false }            # 图片 input
+     { provider, modelId, revision, levels: [...] | null }            # 思考等级
      -> { ok: true } | 409 on a stale revision | 400/404 with { error }
 ```
 
@@ -102,27 +151,48 @@ at and are refused with `409` if it moved, so two open settings pages cannot sil
 clobber each other.
 
 The route also accepts `{ provider, modelId, revision, levels: [...] | null }`, which
-writes the sibling `reasoningEfforts` field with the same semantics. The card does not
-send it: per-model thinking levels live in the model *editor dialog*, which DSH exposes
-no slot on, so this plugin cannot render them there.
+writes the sibling `reasoningEfforts` field with the same semantics:
+
+| `levels` | written to settings.yaml |
+| --- | --- |
+| `["high", "max"]` | `reasoningEfforts: { high: high, max: max }` |
+| `["off"]` | refused — `400`, "off-only declaration is invalid" |
+| `[]` or `null` | the `reasoningEfforts` key is deleted (inherit the catalog) |
+
+The 思考等级 field in the 编辑 dialog posts to this same route — it is the patch's only
+job to *render* the checkboxes; the write path is the ordinary host route, identical to
+the 图片 checkbox's.
 
 ## Requirements
 
 - DSH `>= 0.1.5-rc.1` with the `web` profile (the card is a Web UI contribution).
 - The `llm-pi-ai` adapter family (`@deepseek-ai/dsh-llm-pi-ai`) — i.e. any provider you
   configured through 设置 → 模型. Routes owned by another adapter family are untouched.
+- For the 思考等级 field only: the shipped `@deepseek-ai/dsh-client-ui-settings-models`
+  package, at a version whose two anchors are still intact. If DSH moves them the plugin
+  logs `patch failed (anchor-missing)` and leaves the bundle untouched — the 输入类型 card
+  keeps working either way.
 
 ## Development
 
 ```bash
-npm test          # both halves, no DSH install needed
+npm test          # all three halves, no DSH install needed
 node test/host.test.mjs
+node test/patch.test.mjs
 node test/client.test.mjs
 ```
 
 `test/host.test.mjs` drives the host half against mocked `settings` / `webServer` / `llm`
-services: the GET shape, both route shapes, every write landing spot (including the
-composition-base case), and each refusal path.
+/ `clientModules` services: the GET shape, both route shapes, every write landing spot
+(including the composition-base case), each refusal path, and the patch bootstrapping
+(patched on load, backup written, `rebuilt()` called once, and *not* called when the
+bundle was already patched).
+
+`test/patch.test.mjs` drives `thinking-patch.js` against a synthetic bundle: the marker,
+both inserted functions, the helper landing inside `modelAdvanced`'s children, the backup,
+idempotence, and every failure mode (`anchor-missing` writes nothing). On a machine that
+has a real patched bundle it additionally asserts the module reproduces it **byte for
+byte**; elsewhere it prints `no real bundle on this machine — synthetic checks only`.
 
 `test/client.test.mjs` drives the browser half offline — it fakes the module loader,
 `react`, the `slots` service and `fetch`, then renders the contributed card and asserts

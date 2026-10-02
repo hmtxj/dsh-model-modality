@@ -46,6 +46,8 @@
 // appears where the services exist and never blocks headless boot. The fence
 // mirrors modlens's /modlens/config (same loopback + same-origin judgment the
 // host puts in front of its own /api).
+import { applyThinkingPatch, SETTINGS_MODELS_PACKAGE } from './thinking-patch.js'
+
 export const name = 'dsh-model-modality'
 export const inject = []
 
@@ -288,6 +290,43 @@ function registerRoute(scope) {
   })
 }
 
+// The 思考等级 field lives in the provider EDIT dialog, which exposes no slot,
+// so it can only be added by patching the shipped settings bundle. Doing it
+// here (instead of asking the user to run a script) means it survives every
+// `npm i -g @deepseek-ai/dsh`: an upgrade restores the pristine bundle, the
+// marker disappears, and the next boot patches it again.
+function patchEditorThinking(scope) {
+  let target
+  try {
+    target = scope.clientModules.clientPath(SETTINGS_MODELS_PACKAGE)
+  } catch (error) {
+    console.error('[dsh-model-modality] 思考等级 patch skipped — cannot locate the settings bundle:', error?.message ?? error)
+    return true
+  }
+  if (!target) return false
+  const result = applyThinkingPatch(target)
+  if (result.status === 'applied') {
+    // The module registry snapshots every bundle into memory at startup and
+    // serves /plugins from that snapshot, so the bytes just written to disk are
+    // not what the browser would get. rebuilt() is the registry's own re-hash
+    // hook (the one its HMR watch uses): it re-reads the file, bumps the
+    // revision and recomposes the graph, which is what makes the patched bundle
+    // the one that actually ships.
+    try {
+      scope.clientModules.rebuilt(SETTINGS_MODELS_PACKAGE)
+    } catch (error) {
+      console.error('[dsh-model-modality] 思考等级 patch applied but the bundle was not re-hashed:', error?.message ?? error)
+      return true
+    }
+    console.log('[dsh-model-modality] 思考等级 field patched into the provider edit dialog')
+  } else if (result.status === 'present') {
+    console.log('[dsh-model-modality] 思考等级 field already present')
+  } else {
+    console.error(`[dsh-model-modality] 思考等级 patch failed (${result.status}): ${result.detail ?? ''}`)
+  }
+  return true
+}
+
 export function apply(ctx) {
   if (typeof ctx.inject !== 'function') return
   ctx.inject(['settings', 'webServer', 'llm'], (scope) => {
@@ -296,5 +335,52 @@ export function apply(ctx) {
     } catch (error) {
       console.error('[dsh-model-modality] route skipped:', error)
     }
+  })
+  // Separate inject: a profile without clientModules (no web UI) must still get
+  // the route above rather than losing everything to one missing service.
+  ctx.inject(['clientModules'], (scope) => {
+    const registry = scope.clientModules
+    const attempt = () => {
+      try {
+        return patchEditorThinking(scope) === true
+      } catch (error) {
+        console.error('[dsh-model-modality] 思考等级 patch skipped:', error)
+        return true
+      }
+    }
+    if (attempt()) return
+    // The registry builds its table from Loader entries as they get a fiber, and
+    // the row that owns the settings bundle is declared after `modules`, so the
+    // bundle may simply not be in the graph yet at this point. Its graph-changed
+    // event is a pull-model notification — re-read and try again until the
+    // bundle shows up. Give up rather than listen forever if the service cannot
+    // notify us.
+    if (typeof registry.onGraphChanged !== 'function') {
+      console.error(`[dsh-model-modality] 思考等级 patch skipped — ${SETTINGS_MODELS_PACKAGE} is not in the client module graph`)
+      return
+    }
+    let unsubscribe
+    let stopped = false
+    const stop = () => {
+      if (stopped) return
+      stopped = true
+      if (typeof unsubscribe === 'function') unsubscribe()
+    }
+    try {
+      unsubscribe = registry.onGraphChanged(() => {
+        try {
+          if (attempt()) stop()
+        } catch (error) {
+          console.error('[dsh-model-modality] 思考等级 patch skipped:', error)
+          stop()
+        }
+      })
+    } catch (error) {
+      console.error('[dsh-model-modality] 思考等级 patch listener failed:', error?.message ?? error)
+      return
+    }
+    // The graph may have settled between the first attempt and the subscribe.
+    if (attempt()) stop()
+    if (typeof scope.effect === 'function') scope.effect(() => stop, 'dsh-model-modality: 思考等级 patch retry')
   })
 }

@@ -4,15 +4,77 @@
 // mocks: a fake settings view, a fake llm runtime, and a fake webServer that
 // hands back the registered handler. Run with `node test/host.test.mjs`.
 import assert from 'node:assert/strict'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { apply } from '../index.js'
 
 const NS = 'llm-pi-ai'
 
-function harness({ value, user, served }) {
+// A synthetic stand-in for the shipped settings bundle: the host half patches
+// it through ctx.clientModules.clientPath() at load, and the harness routes
+// that call here so every case exercises the real code path.
+const BUNDLE = `const { models, onChange, probe, operations, t, disabled } = props;
+		const modelAdvanced = (index, model) => [(0, react_jsx_runtime.jsxs)("label", {
+			children: [(0, react_jsx_runtime.jsx)("input", {
+				onChange: (event) => {
+					editCapacity(index, "maxTokens", event.target.value);
+				}
+			})]
+		})];
+`
+const bundleDir = mkdtempSync(join(tmpdir(), 'dsh-modality-host-'))
+const bundlePath = join(bundleDir, 'client.js')
+writeFileSync(bundlePath, BUNDLE)
+// A second, still-pristine copy: the first harness() call patches bundlePath,
+// so cases that need an actual write point at this one instead.
+const freshDir = mkdtempSync(join(tmpdir(), 'dsh-modality-host-fresh-'))
+writeFileSync(join(freshDir, 'client.js'), BUNDLE)
+process.on('exit', () => {
+  rmSync(bundleDir, { recursive: true, force: true })
+  rmSync(freshDir, { recursive: true, force: true })
+})
+
+// `clientPath: null` means "the graph does not carry this bundle"; an omitted
+// clientPath means the default synthetic bundle. (Passing `undefined` would hit
+// the destructuring default instead, which is how this case was silently testing
+// the already-patched path.)
+function harness({ value, user, served, clientPath = bundlePath, deferred = false }) {
   const calls = []
   let handler
+  const rebuilt = []
+  const resolved = clientPath === null ? undefined : clientPath
+  // `deferred` models the real boot order: the registry composes its table from
+  // Loader entries as each one gets a fiber, and the row owning the settings
+  // bundle is declared after `modules`. So clientPath() returns undefined at
+  // first and only answers once the graph "settles" — which is what
+  // onGraphChanged announces.
+  let path = deferred ? undefined : resolved
+  const graphListeners = new Set()
+  // The real registry's rebuilt() ends in notifyGraphChanged(), so a listener
+  // that re-hashes from inside a graph-changed callback is re-entered. Model
+  // that faithfully: an unguarded listener would loop here.
+  const notify = () => {
+    for (const listener of [...graphListeners]) listener()
+  }
   const ctx = {
     inject: (deps, callback) => {
+      if (deps[0] === 'clientModules') {
+        callback({
+          clientModules: {
+            clientPath: (id) => (id === '@deepseek-ai/dsh-client-ui-settings-models' ? path : undefined),
+            rebuilt: (id) => {
+              rebuilt.push(id)
+              notify()
+            },
+            onGraphChanged: (listener) => {
+              graphListeners.add(listener)
+              return () => graphListeners.delete(listener)
+            },
+          },
+        })
+        return
+      }
       assert.deepEqual(deps, ['settings', 'webServer', 'llm'])
       callback({
         settings: {
@@ -37,7 +99,11 @@ function harness({ value, user, served }) {
   }
   apply(ctx)
   assert.ok(handler, 'apply() must register the route')
-  return { handler, calls }
+  const settle = () => {
+    path = resolved
+    notify()
+  }
+  return { handler, calls, rebuilt, settle, listeners: () => graphListeners.size }
 }
 
 function request(method, body) {
@@ -277,6 +343,80 @@ const MODEL = (id, input) => ({ provider: 'acme', id, name: id, inputModalities:
     res,
   )
   assert.equal(res.captured.status, 403)
+}
+
+// --- the 思考等级 patch is applied through clientModules at load ------------
+{
+  const patched = readFileSync(bundlePath, 'utf8')
+  assert.ok(patched.includes('dsh-thinking-field-patch'), 'apply() must patch the settings bundle')
+  assert.ok(patched.includes('function DshThinkingField('), 'the edit dialog field must be inserted')
+  // The original is kept beside it, so a failed boot can always be reverted.
+  assert.equal(readFileSync(`${bundlePath}.pre-thinking-patch`, 'utf8'), BUNDLE)
+}
+
+// --- the registry is told to re-hash, else it serves the stale snapshot -----
+{
+  const { rebuilt } = harness({
+    value: { providers: { acme: { models: [{ id: 'one' }] } } },
+    user: undefined,
+    served: { acme: [MODEL('one', ['text'])] },
+    clientPath: join(freshDir, 'client.js'),
+  })
+  assert.deepEqual(rebuilt, ['@deepseek-ai/dsh-client-ui-settings-models'])
+}
+
+// --- a profile whose graph lacks the bundle still gets the route ------------
+// A bundle that never shows up is indistinguishable from one that has not shown
+// up *yet*, so the plugin waits. That costs one Set entry and nothing else.
+{
+  const { handler, rebuilt, listeners } = harness({
+    value: { providers: { acme: { models: [{ id: 'one' }] } } },
+    user: undefined,
+    served: { acme: [MODEL('one', ['text'])] },
+    clientPath: null,
+  })
+  const { status } = await call(handler, 'GET')
+  assert.equal(status, 200, 'a missing client bundle must not break the route')
+  assert.deepEqual(rebuilt, [], 'nothing to re-hash when the bundle is absent')
+  assert.equal(listeners(), 1, 'the plugin waits for the bundle instead of giving up')
+}
+
+// --- a late-arriving bundle is patched when the graph settles ---------------
+// The real boot order: `modules` is declared before the row that owns the
+// settings bundle, so clientPath() answers undefined on the first try.
+{
+  const late = mkdtempSync(join(tmpdir(), 'dsh-modality-host-late-'))
+  writeFileSync(join(late, 'client.js'), BUNDLE)
+  process.on('exit', () => rmSync(late, { recursive: true, force: true }))
+  const { rebuilt, settle, listeners } = harness({
+    value: { providers: { acme: { models: [{ id: 'one' }] } } },
+    user: undefined,
+    served: { acme: [MODEL('one', ['text'])] },
+    clientPath: join(late, 'client.js'),
+    deferred: true,
+  })
+  assert.deepEqual(rebuilt, [], 'nothing to patch before the bundle is in the graph')
+  assert.equal(listeners(), 1, 'the plugin must be waiting for the graph to change')
+  settle()
+  assert.equal(
+    readFileSync(join(late, 'client.js'), 'utf8').includes('dsh-thinking-field-patch'),
+    true,
+    'the bundle must be patched once it appears in the graph',
+  )
+  assert.deepEqual(rebuilt, ['@deepseek-ai/dsh-client-ui-settings-models'])
+  assert.equal(listeners(), 0, 'the listener must unsubscribe after it succeeds')
+  settle()
+  assert.deepEqual(rebuilt, ['@deepseek-ai/dsh-client-ui-settings-models'], 'no second patch once patched')
+}
+
+// --- an already-patched bundle is not re-hashed -----------------------------
+{
+  const { rebuilt } = harness({
+    value: { providers: { acme: { models: [{ id: 'one' }] } } },
+    user: undefined,
+    served: { acme: [MODEL('one', ['text'])] },
+  })
+  assert.deepEqual(rebuilt, [], 'no write means no re-hash')
 }
 
 console.log('host half: all checks passed')

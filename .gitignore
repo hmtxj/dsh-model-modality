@@ -1,8 +1,6 @@
 node_modules/
 *.log
 
-# The pre-plugin approach: patching the vendor settings bundle by hand. Superseded
-# by the provider-card slot contribution in client.js — kept locally for reference,
-# never published.
-patch-editor-thinking.mjs
+# Backups of the vendor bundle the 思考等级 patch writes beside it (on the
+# machine that runs the plugin, never in this repo).
 *.pre-thinking-patch
