@@ -60,11 +60,41 @@ This plugin does that itself, at profile load, through the module registry's own
 
 - `ctx.clientModules.clientPath('@deepseek-ai/dsh-client-ui-settings-models')` locates the
   bundle on whatever machine it runs on — no hard-coded install path;
-- the patch is anchored on two upstream strings and **aborts without writing** if either
-  moved, so a future DSH layout change degrades to "no field" rather than a broken bundle;
+- the patch is anchored on upstream strings and **aborts without writing** if they moved,
+  so a future DSH layout change degrades to "no field" rather than a broken bundle;
 - the original is kept beside it as `client.js.pre-thinking-patch`;
 - `ctx.clientModules.rebuilt()` re-hashes the bundle so the registry serves the patched
   bytes rather than its startup snapshot.
+
+### Two supported layouts
+
+The patch carries an anchor set per upstream layout and picks one by anchor presence
+(the two sets are disjoint, so this is a reliable discriminator, not a guess):
+
+| Layout | DSH | Anchor | Write path |
+| --- | --- | --- | --- |
+| `legacy` | ≤ 0.1.5 | `ModelListEditor` destructure + the `editCapacity(index, "maxTokens", …)` call | `patch(index, { reasoningEfforts })` |
+| `row` | ≥ 0.2.0-rc.2 | `function ModelRow(props) {` + `onChange: props.onChange` | `props.onFieldChange("reasoningEfforts", value)` |
+
+0.2.0-rc.2 split the model row into its own `ModelRow` component, which **two** editors
+share: the pi-ai editor (`inputField: "input"`) and the DeepSeek editor
+(`inputField: "inputModalities"`). `llm-deepseek` has no `reasoningEfforts` field at all, so
+the injected call is guarded on `inputField === "input"` and renders nothing on the DeepSeek
+route. That version also has no `patch(index, next)` reachable from the row, hence the
+`onFieldChange` write path — whose `patch` deletes any key set to `undefined`, which is
+exactly how "all unchecked = inherit" is expressed in both layouts.
+
+Both layouts report a `layout` alongside the status, so a failure log names *which* anchor
+drifted:
+
+```
+[dsh-model-modality] 思考等级 field patched into the provider edit dialog (row layout)
+[dsh-model-modality] 思考等级 patch failed (anchor-missing, row layout): ModelRow onChange anchor not found — upstream layout changed; patch needs a re-read
+```
+
+If a future DSH matches neither anchor set, the status is `anchor-missing` with layout
+`unknown` and **nothing is written** — the bundle keeps working, it just has no 思考等级
+field.
 
 The practical effect: **install once, and it survives `npm i -g @deepseek-ai/dsh`.** An
 upgrade restores the pristine bundle, the marker disappears, and the next `dsh web` boot
@@ -75,7 +105,13 @@ restarting dsh, or for patching an install the plugin is not loaded in):
 
 ```bash
 node patch-editor-thinking.mjs [path/to/lib/client.js]
+DSH_MODALITY_TARGET=/path/to/lib/client.js node patch-editor-thinking.mjs
 ```
+
+With no argument it auto-detects a global install (npm prefix, `%APPDATA%\npm`,
+`/usr/local/lib/node_modules`, nvm, `~/.npm-global`). An explicit path is authoritative: if
+you pass one that does not exist, the script says so instead of patching a different
+install.
 
 ## Install
 
@@ -169,9 +205,10 @@ the 图片 checkbox's.
 - The `llm-pi-ai` adapter family (`@deepseek-ai/dsh-llm-pi-ai`) — i.e. any provider you
   configured through 设置 → 模型. Routes owned by another adapter family are untouched.
 - For the 思考等级 field only: the shipped `@deepseek-ai/dsh-client-ui-settings-models`
-  package, at a version whose two anchors are still intact. If DSH moves them the plugin
-  logs `patch failed (anchor-missing)` and leaves the bundle untouched — the 输入类型 card
-  keeps working either way.
+  package, at a version whose anchors are still intact — either the `≤ 0.1.5` set or the
+  `≥ 0.2.0-rc.2` set. If DSH moves them the plugin logs
+  `patch failed (anchor-missing, <layout> layout)` and leaves the bundle untouched — the
+  输入类型 card keeps working either way.
 
 ## Development
 
@@ -188,11 +225,15 @@ node test/client.test.mjs
 (patched on load, backup written, `rebuilt()` called once, and *not* called when the
 bundle was already patched).
 
-`test/patch.test.mjs` drives `thinking-patch.js` against a synthetic bundle: the marker,
-both inserted functions, the helper landing inside `modelAdvanced`'s children, the backup,
-idempotence, and every failure mode (`anchor-missing` writes nothing). On a machine that
-has a real patched bundle it additionally asserts the module reproduces it **byte for
-byte**; elsewhere it prints `no real bundle on this machine — synthetic checks only`.
+`test/patch.test.mjs` drives `thinking-patch.js` against two synthetic bundles — one per
+layout: the marker, both inserted functions, the helper landing inside the right function,
+the call landing inside `modelAdvanced`'s children array, the pi-ai route guard, the
+backup, idempotence, layout detection, and every failure mode (a drifted anchor reports its
+layout and writes nothing). On a machine that has a real patched bundle it additionally
+asserts the module reproduces it **byte for byte**; on one that has a pristine real bundle
+it patches a copy and verifies the result. Point either check at another install with
+`DSH_MODALITY_REAL_DIR=<...>/lib`; with neither, it prints
+`no real bundle on this machine — synthetic checks only`.
 
 `test/client.test.mjs` drives the browser half offline — it fakes the module loader,
 `react`, the `slots` service and `fetch`, then renders the contributed card and asserts

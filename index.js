@@ -318,11 +318,11 @@ function patchEditorThinking(scope) {
       console.error('[dsh-model-modality] 思考等级 patch applied but the bundle was not re-hashed:', error?.message ?? error)
       return true
     }
-    console.log('[dsh-model-modality] 思考等级 field patched into the provider edit dialog')
+    console.log(`[dsh-model-modality] 思考等级 field patched into the provider edit dialog (${result.layout} layout)`)
   } else if (result.status === 'present') {
     console.log('[dsh-model-modality] 思考等级 field already present')
   } else {
-    console.error(`[dsh-model-modality] 思考等级 patch failed (${result.status}): ${result.detail ?? ''}`)
+    console.error(`[dsh-model-modality] 思考等级 patch failed (${result.status}${result.layout ? `, ${result.layout} layout` : ''}): ${result.detail ?? ''}`)
   }
   return true
 }
