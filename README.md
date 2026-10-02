@@ -103,7 +103,8 @@ clobber each other.
 
 The route also accepts `{ provider, modelId, revision, levels: [...] | null }`, which
 writes the sibling `reasoningEfforts` field with the same semantics. The card does not
-send it — see below.
+send it: per-model thinking levels live in the model *editor dialog*, which DSH exposes
+no slot on, so this plugin cannot render them there.
 
 ## Requirements
 
