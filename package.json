@@ -2,7 +2,7 @@
   "name": "dsh-model-modality",
   "version": "0.1.0",
   "type": "module",
-  "description": "Per-model input type (text/image) checkboxes on the dsh Models page, plus a per-model 思考等级 field in the provider edit dialog. Writes the official llm-pi-ai `input` and `reasoningEfforts` fields. Supports both the dsh <= 0.1.5 and the dsh >= 0.2.0-rc.2 settings layouts.",
+  "description": "Per-model input-modality and reasoning-effort configuration for the DSH Models settings UI.",
   "keywords": [
     "dsh",
     "dsh-plugin",
@@ -31,6 +31,7 @@
     "patch-editor-thinking.mjs",
     "cordis.patch.yml",
     "README.md",
+    "README.zh-CN.md",
     "LICENSE"
   ],
   "scripts": {

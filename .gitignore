@@ -1,6 +1,26 @@
+# Dependencies and local test output
 node_modules/
+coverage/
 *.log
 
-# Backups of the vendor bundle the 思考等级 patch writes beside it (on the
-# machine that runs the plugin, never in this repo).
+# Local environment, profiles, and credentials
+.env
+.env.*
+!.env.example
+/.dsh/
+/profiles/
+/settings.yaml
+/settings.yml
+/credentials.json
+/credentials.yaml
+/credentials.yml
+
+# Vendor backups and generated archives
 *.pre-thinking-patch
+*.tgz
+*.tar.gz
+*.zip
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db

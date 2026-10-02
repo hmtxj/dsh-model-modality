@@ -9,7 +9,7 @@
 
 import assert from 'node:assert/strict'
 import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { applyThinkingPatch, thinkingPatchLayout, thinkingPatchState, MARKER, SETTINGS_MODELS_PACKAGE } from '../thinking-patch.js'
 
@@ -187,12 +187,22 @@ try {
 // --- optional: byte-for-byte agreement with a real install -------------------
 // Override with DSH_MODALITY_REAL_DIR=<...>/lib to point at another install
 // (e.g. a Linux box, where the path differs).
+const bundleTail = join('@deepseek-ai', 'dsh', 'node_modules', '@deepseek-ai', 'dsh-client-ui-settings-models', 'lib')
+const realCandidates = [
+  process.env.APPDATA && join(process.env.APPDATA, 'npm', 'node_modules', bundleTail),
+  process.env.npm_config_prefix && join(process.env.npm_config_prefix, 'node_modules', bundleTail),
+  process.env.npm_config_prefix && join(process.env.npm_config_prefix, 'lib', 'node_modules', bundleTail),
+  join(homedir(), '.npm-global', 'lib', 'node_modules', bundleTail),
+  join(homedir(), '.nvm', 'versions', 'node', process.version, 'lib', 'node_modules', bundleTail),
+  join('/usr/local/lib/node_modules', bundleTail),
+  join('/usr/lib/node_modules', bundleTail),
+].filter(Boolean)
 const REAL_DIR = process.env.DSH_MODALITY_REAL_DIR
-  || 'C:/Users/Administrator/AppData/Roaming/npm/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-ui-settings-models/lib'
-const realBaseline = `${REAL_DIR}/client.js.pre-thinking-patch`
-const realLive = `${REAL_DIR}/client.js`
+  || realCandidates.find((candidate) => existsSync(join(candidate, 'client.js')))
+const realBaseline = REAL_DIR && join(REAL_DIR, 'client.js.pre-thinking-patch')
+const realLive = REAL_DIR && join(REAL_DIR, 'client.js')
 
-if (existsSync(realBaseline) && existsSync(realLive)) {
+if (realBaseline && realLive && existsSync(realBaseline) && existsSync(realLive)) {
   // A patched bundle plus its pre-patch baseline: the module must reproduce it
   // exactly, which is what pins the legacy insertion to the shipped bytes.
   const probe = join(tmpdir(), `dsh-modality-real-${process.pid}.js`)
@@ -206,7 +216,7 @@ if (existsSync(realBaseline) && existsSync(realLive)) {
     rmSync(probe, { force: true })
     rmSync(`${probe}.pre-thinking-patch`, { force: true })
   }
-} else if (existsSync(realLive)) {
+} else if (realLive && existsSync(realLive)) {
   // No baseline, but a real bundle: check the live bytes directly when they are
   // still pristine (the normal state on a machine whose patch never applied,
   // e.g. a fresh 0.2.0-rc.2 install).
