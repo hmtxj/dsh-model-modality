@@ -3,17 +3,22 @@
 // Contributes ONE extension area to the Models settings page through the
 // official `settings.models.provider-card` slot (keyed by the adapter family's
 // settings namespace, `llm-pi-ai`). Every provider card lists its configured
-// models with two per-model declarations:
+// models with a single per-model declaration:
 //
 //   输入类型   text (always on) + image
-//   思考等级   off / minimal / low / medium / high / xhigh / max
 //
-// Both write OFFICIAL pi-ai per-model fields — `input` and `reasoningEfforts`
-// (see @deepseek-ai/dsh-llm-pi-ai/lib/types/catalog.d.ts, PiAiModelProfile).
-// The shipped Models UI simply does not surface them, which is exactly what
-// the provider-card slot exists for: a plugin distributed outside the DSH
+// It writes the OFFICIAL pi-ai per-model field `input` (see
+// @deepseek-ai/dsh-llm-pi-ai/lib/types/catalog.d.ts, PiAiModelProfile). The
+// shipped Models UI simply does not surface it, which is exactly what the
+// provider-card slot exists for: a plugin distributed outside the DSH
 // repository adds per-model configuration without editing the shipped UI, so
 // nothing here has to be re-applied after a dsh upgrade.
+//
+// Per-model THINKING LEVELS are deliberately NOT in this list: the list-level
+// display is not what this plugin is for. They belong in the native model
+// editor dialog, which exposes no slot at all — that one is
+// `patch-editor-thinking.mjs`, which edits the shipped settings bundle and so
+// has to be re-applied after every dsh upgrade.
 //
 // Reads and writes go to the plugin's own loopback-only host route (GET/POST
 // /dsh-model-modality/models, same loopback + same-origin fence the host puts
@@ -36,43 +41,6 @@ window.__ModuleLoader__.load({
     var SLOT = 'settings.models.provider-card'
     var KEY = 'llm-pi-ai'
     var ROUTE = '/dsh-model-modality/models'
-
-    // Escalation order, matching the adapter's own THINKING_LEVELS. `off` maps
-    // to a null wire value ("supported, send nothing"); every other level maps
-    // to its own name. A level absent from the dict is simply not offered.
-    var LEVELS = [
-      ['off', '关'],
-      ['minimal', '最小'],
-      ['low', '低'],
-      ['medium', '中'],
-      ['high', '高'],
-      ['xhigh', '超高'],
-      ['max', 'Max'],
-    ]
-
-    // --- declaration readers (the shape the host route reports) -------------
-
-    // `efforts` is null when the key is absent (inherit from the installed
-    // catalog), false for an explicitly non-reasoning model, else the dict.
-    function declaredLevels(model) {
-      var declared = model && model.efforts
-      return declared !== null && typeof declared === 'object' ? declared : {}
-    }
-
-    function levelChecked(model, level) {
-      var wire = declaredLevels(model)[level]
-      if (wire === null) return level === 'off'
-      return typeof wire === 'string' && wire.length > 0
-    }
-
-    // The full selection after toggling ONE level, in escalation order.
-    function pickedLevels(model, changed, on) {
-      return LEVELS.map(function (pair) {
-        return pair[0]
-      }).filter(function (level) {
-        return level === changed ? on : levelChecked(model, level)
-      })
-    }
 
     var styles = {
       host: {
@@ -105,22 +73,10 @@ window.__ModuleLoader__.load({
       },
       model: {
         display: 'flex',
-        flexDirection: 'column',
-        gap: '2px',
-        padding: '4px 0',
-      },
-      head: {
-        display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
         gap: '8px',
-      },
-      levelRow: {
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: '4px 8px',
-        flexWrap: 'wrap',
+        padding: '4px 0',
       },
       modelId: {
         fontSize: '12px',
@@ -146,27 +102,6 @@ window.__ModuleLoader__.load({
         lineHeight: '18px',
         color: 'var(--dsw-alias-label-secondary)',
       },
-      levelLabel: {
-        fontSize: '12px',
-        lineHeight: '18px',
-        color: 'var(--dsw-alias-label-tertiary)',
-        flexShrink: 0,
-      },
-      levels: {
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'flex-end',
-        flexWrap: 'wrap',
-        gap: '4px 10px',
-      },
-      levelItem: {
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: '4px',
-        fontSize: '12px',
-        lineHeight: '18px',
-        color: 'var(--dsw-alias-label-secondary)',
-      },
     }
 
     function mountCard(ctx) {
@@ -182,7 +117,7 @@ window.__ModuleLoader__.load({
       var useEffect = react.useEffect
       var useCallback = react.useCallback
 
-      // Lucide "sliders-horizontal" glyph, stroke = currentColor; no emoji.
+      // Lucide "image" glyph, stroke = currentColor; no emoji.
       function DeclareIcon() {
         return h(
           'svg',
@@ -199,15 +134,9 @@ window.__ModuleLoader__.load({
             style: { flexShrink: 0 },
           },
           [
-            h('line', { key: 'a', x1: 21, x2: 14, y1: 4, y2: 4 }),
-            h('line', { key: 'b', x1: 10, x2: 3, y1: 4, y2: 4 }),
-            h('line', { key: 'c', x1: 21, x2: 12, y1: 12, y2: 12 }),
-            h('line', { key: 'd', x1: 8, x2: 3, y1: 12, y2: 12 }),
-            h('line', { key: 'e', x1: 21, x2: 16, y1: 20, y2: 20 }),
-            h('line', { key: 'f', x1: 12, x2: 3, y1: 20, y2: 20 }),
-            h('line', { key: 'g', x1: 14, x2: 14, y1: 2, y2: 6 }),
-            h('line', { key: 'i', x1: 8, x2: 8, y1: 10, y2: 14 }),
-            h('line', { key: 'j', x1: 16, x2: 16, y1: 18, y2: 22 }),
+            h('rect', { key: 'a', width: 18, height: 18, x: 3, y: 3, rx: 2, ry: 2 }),
+            h('circle', { key: 'b', cx: 9, cy: 9, r: 2 }),
+            h('path', { key: 'c', d: 'm21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21' }),
           ],
         )
       }
@@ -272,9 +201,9 @@ window.__ModuleLoader__.load({
 
         if (props.configured !== true) return null
 
-        // One writer for both declarations: POST, then re-read so the controls
-        // always show what the host actually stored. On refusal the previous
-        // snapshot is restored (which also snaps an optimistic checkbox back).
+        // POST, then re-read so the checkbox always shows what the host
+        // actually stored. On refusal the previous snapshot is restored (which
+        // also snaps an optimistic checkbox back).
         function write(payload) {
           if (busyState[0]) return
           setBusy(true)
@@ -319,24 +248,6 @@ window.__ModuleLoader__.load({
           write({ modelId: modelId, enable: enable })
         }
 
-        function toggleLevel(model, level, on) {
-          if (busyState[0]) return
-          var picked = pickedLevels(model, level, on)
-          // An off-only declaration is refused by the adapter at profile load,
-          // so writing one would break the next boot. Refuse it here instead,
-          // with a fresh snapshot object so React resets the checkbox.
-          if (picked.length === 1 && picked[0] === 'off') {
-            setSnap({
-              status: 'ready',
-              entry: snap.entry,
-              failure: '「关」不能单独声明：要么一个都不勾（跟随官方目录），要么至少再勾一个其他档位。',
-              revision: snap.revision,
-            })
-            return
-          }
-          write({ modelId: model.id, levels: picked.length === 0 ? null : picked })
-        }
-
         var body = null
         if (snap.status === 'loading') body = h('p', { style: styles.note }, '读取中…')
         else if (snap.status === 'error')
@@ -352,7 +263,7 @@ window.__ModuleLoader__.load({
         }
 
         var children = [
-          h('div', { style: styles.heading }, h(DeclareIcon, null), h('span', null, '模型声明')),
+          h('div', { style: styles.heading }, h(DeclareIcon, null), h('span', null, '输入类型')),
           body,
         ]
 
@@ -360,84 +271,34 @@ window.__ModuleLoader__.load({
           var models = snap.entry.models
           var rows = models.map(function (model) {
             var id = model.id
-            var levelLabel = '思考等级' + (model.efforts === false ? '（已声明为非推理）' : '')
             return h(
               'div',
               { key: id, style: styles.model },
+              h('span', { style: styles.modelId, title: id }, id),
               h(
-                'div',
-                { style: styles.head },
-                h('span', { style: styles.modelId, title: id }, id),
-                h(
-                  'span',
-                  { style: styles.controls },
-                  h('span', { style: styles.locked, title: '文本始终支持' }, '文本'),
-                  h('input', {
-                    type: 'checkbox',
-                    checked: true,
-                    disabled: true,
-                    'aria-label': id + ' 输入类型 文本（始终支持）',
-                  }),
-                  h('span', { style: styles.toggleLabel }, '图片'),
-                  h('input', {
-                    type: 'checkbox',
-                    checked: model.imageOn === true,
-                    disabled: busy,
-                    onChange: function (event) {
-                      toggleImage(id, event.target.checked)
-                    },
-                    'aria-label': id + ' 输入类型 图片',
-                  }),
-                ),
-              ),
-              h(
-                'div',
-                { style: styles.levelRow },
-                h('span', { style: styles.levelLabel }, levelLabel),
-                h(
-                  'span',
-                  { role: 'group', 'aria-label': id + ' 的思考等级', style: styles.levels },
-                  LEVELS.map(function (pair) {
-                    var level = pair[0]
-                    return h(
-                      'label',
-                      {
-                        key: level,
-                        style: styles.levelItem,
-                        title:
-                          level === 'off'
-                            ? 'off：仅勾「关」无效，需至少再勾一个其他档位'
-                            : '声明该模型支持 ' + level,
-                      },
-                      h('input', {
-                        type: 'checkbox',
-                        checked: levelChecked(model, level),
-                        disabled: busy,
-                        onChange: function (event) {
-                          toggleLevel(model, level, event.target.checked)
-                        },
-                        'aria-label': id + ' 思考等级 ' + pair[1],
-                      }),
-                      h('span', null, pair[1]),
-                    )
-                  }),
-                ),
+                'span',
+                { style: styles.controls },
+                h('span', { style: styles.locked, title: '文本始终支持' }, '文本'),
+                h('input', {
+                  type: 'checkbox',
+                  checked: true,
+                  disabled: true,
+                  'aria-label': id + ' 输入类型 文本（始终支持）',
+                }),
+                h('span', { style: styles.toggleLabel }, '图片'),
+                h('input', {
+                  type: 'checkbox',
+                  checked: model.imageOn === true,
+                  disabled: busy,
+                  onChange: function (event) {
+                    toggleImage(id, event.target.checked)
+                  },
+                  'aria-label': id + ' 输入类型 图片',
+                }),
               ),
             )
           })
-          children.push(h('div', { role: 'group', 'aria-label': route + ' 的模型声明' }, rows))
-          // Where the declaration lands differs by route shape, and saying so
-          // is the difference between "a checkbox that sticks" and "a checkbox
-          // that mysteriously fights the installed catalog".
-          children.push(
-            h(
-              'p',
-              { style: styles.note },
-              snap.entry && snap.entry.mode === 'list'
-                ? '思考等级一个都不勾 = 不声明，跟随官方目录。这些声明写在该渠道自己的模型清单里。'
-                : '思考等级一个都不勾 = 不声明，跟随官方目录。这些声明只改这一个模型，同渠道其他模型不受影响。',
-            ),
-          )
+          children.push(h('div', { role: 'group', 'aria-label': route + ' 的输入类型' }, rows))
         }
 
         // A ready snapshot carrying a failure is always a write that did not

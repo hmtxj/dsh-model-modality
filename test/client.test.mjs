@@ -188,17 +188,12 @@ function checkboxes(node) {
   return walk(node).filter((n) => n.type === 'input' && n.props.type === 'checkbox')
 }
 
-/** One model's boxes, in render order: [text, image, off, minimal, low, medium, high, xhigh, max]. */
+/** One model's boxes, in render order: [text (disabled), image]. */
 function rowBoxes(boxes, at) {
-  return boxes.slice(at * 9, at * 9 + 9)
+  return boxes.slice(at * 2, at * 2 + 2)
 }
 
-/** The seven level boxes of one model, in escalation order. */
-function levelBoxes(boxes, at) {
-  return rowBoxes(boxes, at).slice(2)
-}
-
-const MODEL = (id, imageOn, efforts) => ({ id, name: id, imageOn, efforts })
+const MODEL = (id, imageOn) => ({ id, name: id, imageOn, efforts: null })
 
 // --- 1. an unconfigured card renders nothing --------------------------------
 {
@@ -208,7 +203,7 @@ const MODEL = (id, imageOn, efforts) => ({ id, name: id, imageOn, efforts })
   console.log('ok  unconfigured card renders nothing')
 }
 
-// --- 2. a list route renders one row per model with both controls -----------
+// --- 2. a list route renders one row per model with the text/image pair -----
 {
   routes = [
     {
@@ -217,49 +212,39 @@ const MODEL = (id, imageOn, efforts) => ({ id, name: id, imageOn, efforts })
         {
           provider: 'acme',
           mode: 'list',
-          models: [MODEL('one', false, null), MODEL('two', true, { off: null, high: 'high' })],
+          models: [MODEL('one', false), MODEL('two', true)],
         },
       ],
     },
   ]
   const tree = await render({ provider: { provider: 'acme' }, configured: true, keyConfigured: true })
   const boxes = checkboxes(tree)
-  // 2 models x (1 disabled text + 1 image + 7 levels) = 18
-  assert.equal(boxes.length, 18, `expected 18 checkboxes, got ${boxes.length}`)
+  // 2 models x (1 disabled text + 1 image) = 4
+  assert.equal(boxes.length, 4, `expected 4 checkboxes, got ${boxes.length}`)
   const first = rowBoxes(boxes, 0)
   const second = rowBoxes(boxes, 1)
   assert.equal(first[0].props.disabled, true, 'the text box is always disabled')
   assert.equal(first[0].props.checked, true, 'the text box is always checked')
   assert.equal(first[1].props.checked, false, 'model one does not accept images')
   assert.equal(second[1].props.checked, true, 'model two accepts images')
-  // model one declares nothing: every level box is clear
-  assert.deepEqual(
-    levelBoxes(boxes, 0).map((b) => b.props.checked),
-    [false, false, false, false, false, false, false],
-    'an undeclared model shows no ticks',
-  )
-  // model two declares off+high: exactly 关 and 高 are lit
-  assert.deepEqual(
-    levelBoxes(boxes, 1).map((b) => b.props.checked),
-    [true, false, false, false, true, false, false],
-    'off+high declaration must light exactly 关 and 高',
-  )
-  assert.match(texts(tree), /模型声明/)
-  assert.match(texts(tree), /写在该渠道自己的模型清单里/)
-  console.log('ok  list route renders 2 rows, both controls, correct ticks')
+  assert.match(texts(tree), /输入类型/)
+  console.log('ok  list route renders one row per model, text always on + image tick')
 }
 
-// --- 3. a catalog route says the declaration is per-model ------------------
+// --- 3. the heading is 输入类型 and nothing else ----------------------------
 {
   routes = [
-    {
-      revision: 3,
-      providers: [{ provider: 'acme', mode: 'catalog', models: [MODEL('solo', false, null)] }],
-    },
+    { revision: 3, providers: [{ provider: 'acme', mode: 'catalog', models: [MODEL('solo', false)] }] },
   ]
   const tree = await render({ provider: { provider: 'acme' }, configured: true, keyConfigured: true })
-  assert.match(texts(tree), /只改这一个模型，同渠道其他模型不受影响/)
-  console.log('ok  catalog route explains the per-model scope')
+  const shown = texts(tree)
+  assert.match(shown, /输入类型/)
+  // The list-level thinking-level display was explicitly rejected, and so was
+  // every explanatory footnote: this card carries the image declaration only.
+  assert.doesNotMatch(shown, /模型声明/, 'the heading must be 输入类型, not 模型声明')
+  assert.doesNotMatch(shown, /思考等级/, 'no thinking levels in the provider card')
+  assert.doesNotMatch(shown, /跟随官方目录/, 'no explanatory footnote in the provider card')
+  console.log('ok  card shows 输入类型 only — no heading rewrite, no levels, no footnote')
 }
 
 // --- 4. an empty model list gets an actionable hint, not the old models hint -
@@ -276,8 +261,8 @@ const MODEL = (id, imageOn, efforts) => ({ id, name: id, imageOn, efforts })
 // --- 5. toggling image POSTs enable:true ------------------------------------
 {
   routes = [
-    { revision: 5, providers: [{ provider: 'acme', mode: 'list', models: [MODEL('one', false, null)] }] },
-    { revision: 6, providers: [{ provider: 'acme', mode: 'list', models: [MODEL('one', true, null)] }] },
+    { revision: 5, providers: [{ provider: 'acme', mode: 'list', models: [MODEL('one', false)] }] },
+    { revision: 6, providers: [{ provider: 'acme', mode: 'list', models: [MODEL('one', true)] }] },
   ]
   posted = []
   const tree = await render({ provider: { provider: 'acme' }, configured: true, keyConfigured: true })
@@ -288,57 +273,24 @@ const MODEL = (id, imageOn, efforts) => ({ id, name: id, imageOn, efforts })
   console.log('ok  image toggle POSTs { enable: true } with the read revision')
 }
 
-// --- 6. toggling a level POSTs the full picked set --------------------------
+// --- 6. unticking image POSTs enable:false ----------------------------------
 {
   routes = [
-    { revision: 5, providers: [{ provider: 'acme', mode: 'list', models: [MODEL('one', false, { high: 'high' })] }] },
-    { revision: 6, providers: [{ provider: 'acme', mode: 'list', models: [MODEL('one', false, { high: 'high', max: 'max' })] }] },
+    { revision: 5, providers: [{ provider: 'acme', mode: 'list', models: [MODEL('one', true)] }] },
+    { revision: 6, providers: [{ provider: 'acme', mode: 'list', models: [MODEL('one', false)] }] },
   ]
   posted = []
   const tree = await render({ provider: { provider: 'acme' }, configured: true, keyConfigured: true })
-  const levels = levelBoxes(checkboxes(tree), 0)
-  assert.deepEqual(
-    levels.map((b) => b.props.checked),
-    [false, false, false, false, true, false, false],
-    'only 高 is declared to start with',
-  )
-  levels[6].props.onChange({ target: { checked: true } }) // Max
+  rowBoxes(checkboxes(tree), 0)[1].props.onChange({ target: { checked: false } })
   await new Promise((resolve) => setTimeout(resolve, 0))
-  assert.deepEqual(posted, [{ provider: 'acme', revision: 5, modelId: 'one', levels: ['high', 'max'] }])
-  console.log('ok  level toggle POSTs the whole escalation-ordered set')
+  assert.deepEqual(posted, [{ provider: 'acme', revision: 5, modelId: 'one', enable: false }])
+  console.log('ok  image untick POSTs { enable: false }')
 }
 
-// --- 7. unchecking the last level asks to inherit (levels: null) ------------
+// --- 7. a 409 surfaces as a retry message ----------------------------------
 {
   routes = [
-    { revision: 5, providers: [{ provider: 'acme', mode: 'list', models: [MODEL('one', false, { high: 'high' })] }] },
-    { revision: 6, providers: [{ provider: 'acme', mode: 'list', models: [MODEL('one', false, null)] }] },
-  ]
-  posted = []
-  const tree = await render({ provider: { provider: 'acme' }, configured: true, keyConfigured: true })
-  levelBoxes(checkboxes(tree), 0)[4].props.onChange({ target: { checked: false } }) // uncheck 高
-  await new Promise((resolve) => setTimeout(resolve, 0))
-  assert.deepEqual(posted, [{ provider: 'acme', revision: 5, modelId: 'one', levels: null }])
-  console.log('ok  clearing the last level POSTs levels: null (inherit)')
-}
-
-// --- 8. an off-only pick is refused locally, with no request ----------------
-{
-  routes = [{ revision: 5, providers: [{ provider: 'acme', mode: 'list', models: [MODEL('one', false, null)] }] }]
-  posted = []
-  const tree = await render({ provider: { provider: 'acme' }, configured: true, keyConfigured: true })
-  levelBoxes(checkboxes(tree), 0)[0].props.onChange({ target: { checked: true } }) // 关 alone
-  await new Promise((resolve) => setTimeout(resolve, 0))
-  assert.deepEqual(posted, [], 'an off-only pick must not reach the host')
-  const after = rerender({ provider: { provider: 'acme' }, configured: true, keyConfigured: true })
-  assert.match(texts(after), /「关」不能单独声明/)
-  console.log('ok  off-only pick refused locally with an explanation')
-}
-
-// --- 9. a 409 surfaces as a retry message ----------------------------------
-{
-  routes = [
-    { revision: 5, providers: [{ provider: 'acme', mode: 'list', models: [MODEL('one', false, null)] }] },
+    { revision: 5, providers: [{ provider: 'acme', mode: 'list', models: [MODEL('one', false)] }] },
     { postStatus: 409, postBody: { error: 'revision conflict' } },
   ]
   const tree = await render({ provider: { provider: 'acme' }, configured: true, keyConfigured: true })
@@ -349,7 +301,7 @@ const MODEL = (id, imageOn, efforts) => ({ id, name: id, imageOn, efforts })
   console.log('ok  409 renders as a retry prompt')
 }
 
-// --- 10. a failed GET surfaces as a read error ------------------------------
+// --- 8. a failed GET surfaces as a read error ------------------------------
 {
   routes = [{ getStatus: 500, getBody: { error: 'boom' } }]
   const tree = await render({ provider: { provider: 'acme' }, configured: true, keyConfigured: true })

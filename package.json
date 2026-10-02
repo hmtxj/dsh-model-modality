@@ -2,16 +2,15 @@
   "name": "dsh-model-modality",
   "version": "0.1.0",
   "type": "module",
-  "description": "Per-model input type (text/image) and thinking level checkboxes on the dsh Models settings page, writing the official llm-pi-ai `input` and `reasoningEfforts` fields.",
+  "description": "Per-model input type (text/image) checkboxes on the dsh Models settings page, writing the official llm-pi-ai `input` field.",
   "keywords": [
     "dsh",
     "dsh-plugin",
     "deepseek-harness",
     "llm",
     "pi-ai",
-    "reasoning-effort",
-    "thinking-level",
-    "modality"
+    "modality",
+    "vision"
   ],
   "license": "MIT",
   "author": "hmtxj",
